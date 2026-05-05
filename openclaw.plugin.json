@@ -5,11 +5,6 @@
   "description": "群聊 Bot 社交感知：上下文注入 / Bot@Bot 接收 / @alias 格式转换 / 防风暴",
   "extensions": ["./index.js"],
   "hooks": ["before_prompt_build", "message_sending", "inbound_claim"],
-  "hooksConfig": {
-    "before_prompt_build": { "allowConversationAccess": true },
-    "message_sending": { "allowConversationAccess": true },
-    "inbound_claim": { "allowConversationAccess": true }
-  },
   "configSchema": {
     "contextGroups": {
       "type": "array",
