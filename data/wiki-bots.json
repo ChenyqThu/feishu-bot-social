@@ -17,7 +17,8 @@
     "xiaok": {
       "agentId": "xiaok",
       "appId": "cli_a92d7a5bb57a1bc4",
-      "openId": "ou_a2c019095b2cb92317d70fe00ce88153",
+      "openId": "ou_88902891e318ac3a4a7dac115e50ea44",
+      "openId_note": "2026-05-04 小 K 自报确认，wiki 旧值 ou_a2c019095b2cb92317d70fe00ce88153 错误",
       "name": "小K",
       "emoji": "🐾",
       "aliases": ["小k", "小K"],
