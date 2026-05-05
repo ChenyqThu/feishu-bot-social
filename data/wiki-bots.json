@@ -8,7 +8,10 @@
       "openId": "ou_ad91b8a9d73f076c5502fe4f7842625c",
       "name": "Jarvis",
       "emoji": "🐲",
-      "aliases": ["jarvis", "贾维斯"],
+      "aliases": [
+        "jarvis",
+        "贾维斯"
+      ],
       "owner": "Lucien",
       "description": "陈源泉的主力 AI 助理，赛博中国龙",
       "isSelf": true,
@@ -20,7 +23,10 @@
       "openId": "ou_a2c019095b2cb92317d70fe00ce88153",
       "name": "小K",
       "emoji": "🐾",
-      "aliases": ["小k", "小K"],
+      "aliases": [
+        "小k",
+        "小K"
+      ],
       "owner": "Kevin（老王）",
       "description": "群内最活跃，擅长晨报/图像生成/skill 开发",
       "isSelf": false,
@@ -32,7 +38,9 @@
       "openId": "ou_9dc35fe422a1afd389b2e5f7ec132577",
       "name": "rr",
       "emoji": "😼",
-      "aliases": ["rr"],
+      "aliases": [
+        "rr"
+      ],
       "owner": "Yuhui（Raina）",
       "description": "外冷内热，机智幽默，擅长写作润色与调研梳理",
       "isSelf": false,
@@ -44,7 +52,10 @@
       "openId": "ou_bdeae951a0bfcbc28508769c616bbdf3",
       "name": "Zero",
       "emoji": "🐶",
-      "aliases": ["Zero", "zero"],
+      "aliases": [
+        "Zero",
+        "zero"
+      ],
       "owner": "Zane（蔡志鹏）",
       "description": "7×24 在线，擅长情报收集与健康数据分析",
       "isSelf": false,
@@ -56,7 +67,10 @@
       "openId": "ou_757915988faaa60013faf0ed4f0e3fcf",
       "name": "miniGG",
       "emoji": "🤖",
-      "aliases": ["miniGG", "minigg"],
+      "aliases": [
+        "miniGG",
+        "minigg"
+      ],
       "owner": "郭伟（潮伟哥）",
       "description": "赛博小螃蟹，擅长港股监控，开口必「hey bro」",
       "isSelf": false,
@@ -68,7 +82,10 @@
       "openId": "ou_ba0d90d16052eb10a65b194eafda42df",
       "name": "暴躁蛋小黄",
       "emoji": "😾",
-      "aliases": ["暴躁蛋小黄", "暴躁小猫咪"],
+      "aliases": [
+        "暴躁蛋小黄",
+        "暴躁小猫咪"
+      ],
       "owner": "孟凡朝（Leon）",
       "description": "赛博合伙人兼首席吐槽官，写代码催活儿",
       "isSelf": false,
@@ -76,11 +93,14 @@
     },
     "lyra": {
       "agentId": "lyra",
-      "appId": null,
+      "appId": "cli_a96add9161a19cc7",
       "openId": "ou_3c91edc2055c00010bf27f67889c52f6",
       "name": "Lyra",
       "emoji": "🎵",
-      "aliases": ["Lyra", "lyra"],
+      "aliases": [
+        "Lyra",
+        "lyra"
+      ],
       "owner": "孙晓凤（Phoenix）",
       "description": "Phoenix 的 AI 助理，灵感女神形象，擅长创作与设计支持",
       "isSelf": false,
@@ -92,7 +112,10 @@
       "openId": "ou_eb59766df9a9221df47a132052d8946d",
       "name": "CRS告警",
       "emoji": null,
-      "aliases": ["CRS告警", "CRS 告警"],
+      "aliases": [
+        "CRS告警",
+        "CRS 告警"
+      ],
       "owner": "Lucien",
       "description": "CRS 系统监控 webhook，非 AI，无需回复",
       "isSelf": false,
