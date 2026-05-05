@@ -32,6 +32,13 @@ const plugin = {
   description: '飞书群聊 Bot 社交感知：群上下文注入 / Bot@Bot 接收 / @alias 格式转换 / 防风暴',
 
   register(api) {
+    // 幂等保护：active-memory 子 session 会触发第二次 register，跳过
+    if (plugin._registered) {
+      api.logger?.debug?.('[feishu-bot-social] already registered, skipping');
+      return;
+    }
+    plugin._registered = true;
+
     const cfg  = api.pluginConfig ?? {};
     const glog = api.logger; // gateway 日志
     const log  = makeLogger(cfg.debugLog !== false, path.join(__dirname, 'logs'));
