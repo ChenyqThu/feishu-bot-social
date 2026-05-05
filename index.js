@@ -216,7 +216,10 @@ const plugin = {
     // 返回字段：{ appendSystemContext: string }（不是 systemPromptExtra！）
     // ════════════════════════════════════════════════════════════════════════
     api.on('before_prompt_build', async (event, ctx) => {
-      log.debug(`[before_prompt_build] ch=${ctx?.channelId} chat=${ctx?.conversationId}`);
+      // 同时写 console.log 到 gateway 日志，方便调试 ctx 字段
+      const ctxKeys = ctx ? Object.keys(ctx).slice(0, 15).join(',') : 'null';
+      console.log(`[fbs:before_prompt_build] ch=${ctx?.channelId} chat=${ctx?.conversationId} isGroup=${ctx?.isGroup} keys=${ctxKeys}`);
+      log.debug(`[before_prompt_build] ch=${ctx?.channelId} chat=${ctx?.conversationId} isGroup=${ctx?.isGroup}`);
 
       // ① 非飞书渠道 → 跳过
       if (ctx?.channelId !== 'feishu') return;
