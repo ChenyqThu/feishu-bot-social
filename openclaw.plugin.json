@@ -1,51 +1,31 @@
 {
-  "id": "feishu-bot-social",
-  "name": "Feishu Bot Social",
+  "name": "feishu-bot-social",
   "version": "1.0.0",
   "description": "群聊 Bot 社交感知：上下文注入 / Bot@Bot 接收 / @alias 格式转换 / 防风暴",
-  "configSchema": {
-    "contextGroups": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "启用上下文感知的飞书群 chat_id 白名单",
-      "default": []
-    },
-    "contextMessageCount": {
-      "type": "number",
-      "description": "拉取群历史消息条数（建议 15-30）",
-      "default": 20,
-      "minimum": 5,
-      "maximum": 100
-    },
-    "contextCacheTtlMs": {
-      "type": "number",
-      "description": "上下文缓存 TTL（毫秒）",
-      "default": 60000
-    },
-    "stormThreshold": {
-      "type": "number",
-      "description": "30s 内 bot @Jarvis 次数超过此值触发防风暴",
-      "default": 2
-    },
-    "circuitBreakerMaxOutbound": {
-      "type": "number",
-      "description": "1 分钟内 Jarvis outbound 超过此值触发熔断",
-      "default": 5
-    },
-    "circuitBreakerSilenceMs": {
-      "type": "number",
-      "description": "熔断静默时长（毫秒）",
-      "default": 300000
-    },
-    "botOverrides": {
-      "type": "object",
-      "description": "手动覆盖 bot 信息（优先级最高）",
-      "default": {}
-    },
-    "debugLog": {
-      "type": "boolean",
-      "description": "是否写调试日志到 logs/fbs-debug-YYYY-MM-DD.log",
-      "default": true
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.0"
     }
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "id": "feishu-bot-social",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "contextGroups": { "type": "array" },
+      "contextMessageCount": { "type": "number" },
+      "contextCacheTtlMs": { "type": "number" },
+      "stormThreshold": { "type": "number" },
+      "circuitBreakerMaxOutbound": { "type": "number" },
+      "circuitBreakerSilenceMs": { "type": "number" },
+      "botOverrides": { "type": "object" },
+      "debugLog": { "type": "boolean" }
+    },
+    "additionalProperties": false
   }
 }

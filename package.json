@@ -15,11 +15,6 @@
     "test": "node test/smoke.js"
   },
   "openclaw": {
-    "extensions": ["./index.js"],
-    "hooks": ["before_prompt_build", "message_sending", "inbound_claim"],
-    "compat": {
-      "pluginApi": ">=2026.3.24-beta.2",
-      "minGatewayVersion": "5.0.0"
-    }
+    "extensions": ["./index.js"]
   }
 }
