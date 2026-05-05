@@ -184,8 +184,10 @@ const plugin = {
         return;
       }
 
-      // ⑤ 自己（Jarvis）发的消息 → DROP
-      if (registry.isSelfSender(senderId)) {
+      // ⑤ 自己（Jarvis）发的消息 → DROP（sender 可能是 open_id 或 app_id 格式）
+      const selfByOpenId = registry.findByOpenId(senderId)?.isSelf;
+      const selfByAppId  = registry.findByAppId(senderId)?.isSelf;
+      if (selfByOpenId || selfByAppId) {
         log.debug('[inbound_claim] self message, drop');
         return { handled: true };
       }
@@ -233,12 +235,13 @@ const plugin = {
     // 返回字段：{ appendSystemContext: string }（不是 systemPromptExtra！）
     // ════════════════════════════════════════════════════════════════════════
     api.on('before_prompt_build', async (event, ctx) => {
-      // ctx.channelId 在飞书群聊中实际是群的 chat_id（oc_xxx），而不是字符串 'feishu'
-      // 参考实测日志：ch=oc_9ba7a535... chat=undefined isGroup=undefined
-      const chatId = ctx?.channelId?.split(':')?.[0]; // active-memory 子会话 key 包含 ':'
+      // ctx.channelId: 群=oc_xxx, DM=ou_xxx, active-memory子session=oc_xxx:active-memory:xxx
+      // active-memory 子 session 不需要群上下文，直接跳过（节省一次 API 请求）
+      if (ctx?.sessionKey?.includes(':active-memory:')) return;
+
+      const chatId = ctx?.channelId?.split(':')?.[0];
       log.debug(`[before_prompt_build] channelId=${ctx?.channelId} chatId=${chatId}`);
 
-      // 目标群白名单检查（匹配即为飞书群聊，无需单独检查 channel 类型）
       if (!chatId || !TARGET_GROUPS.has(chatId)) return;
 
       // ④ 命中缓存（同群同分钟内复用）
@@ -285,13 +288,10 @@ const plugin = {
     // escapeRegExp 来自 [R1]
     // ════════════════════════════════════════════════════════════════════════
     api.on('message_sending', (event, ctx) => {
-      // ctx.channelId 对飞书群聊是 'oc_xxx'，对DM是 'ou_xxx'，均非 'feishu'
-      // 只对飞书群聊进行 @alias 替换（oc_ 开头）
-      const chanId = ctx?.channelId?.split(':')?.[0];
+      // message_sending ctx.channelId 始终是 'feishu'（路向层固定），不是 oc_xxx 或 ou_xxx
+      // 源码验证：message-hook-mappers outbound context channelId = messageProvider = 'feishu'
       log.debug(`[message_sending] channelId=${ctx?.channelId} len=${event.content?.length}`);
-
-      // 飞书群聊 ID 均以 oc_ 开头
-      if (!chanId?.startsWith('oc_')) return;
+      if (ctx?.channelId !== 'feishu') return;
 
       let content  = event.content || '';
       let modified = false;
