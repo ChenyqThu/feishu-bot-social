@@ -17,8 +17,7 @@
     "xiaok": {
       "agentId": "xiaok",
       "appId": "cli_a92d7a5bb57a1bc4",
-      "openId": "ou_88902891e318ac3a4a7dac115e50ea44",
-      "openId_note": "2026-05-04 小 K 自报确认，wiki 旧值 ou_a2c019095b2cb92317d70fe00ce88153 错误",
+      "openId": "ou_a2c019095b2cb92317d70fe00ce88153",
       "name": "小K",
       "emoji": "🐾",
       "aliases": ["小k", "小K"],
@@ -42,7 +41,7 @@
     "zero": {
       "agentId": "zero",
       "appId": "cli_a923d3071ef81cc6",
-      "openId": "ou_65d4a3c0642baa877a2bd8e55fb604fd",
+      "openId": "ou_bdeae951a0bfcbc28508769c616bbdf3",
       "name": "Zero",
       "emoji": "🐶",
       "aliases": ["Zero", "zero"],
@@ -72,6 +71,18 @@
       "aliases": ["暴躁蛋小黄", "暴躁小猫咪"],
       "owner": "孟凡朝（Leon）",
       "description": "赛博合伙人兼首席吐槽官，写代码催活儿",
+      "isSelf": false,
+      "isAI": true
+    },
+    "lyra": {
+      "agentId": "lyra",
+      "appId": null,
+      "openId": "ou_3c91edc2055c00010bf27f67889c52f6",
+      "name": "Lyra",
+      "emoji": "🎵",
+      "aliases": ["Lyra", "lyra"],
+      "owner": "孙晓凤（Phoenix）",
+      "description": "Phoenix 的 AI 助理，灵感女神形象，擅长创作与设计支持",
       "isSelf": false,
       "isAI": true
     },
