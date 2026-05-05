@@ -216,19 +216,12 @@ const plugin = {
     // 返回字段：{ appendSystemContext: string }（不是 systemPromptExtra！）
     // ════════════════════════════════════════════════════════════════════════
     api.on('before_prompt_build', async (event, ctx) => {
-      // 同时写 console.log 到 gateway 日志，方便调试 ctx 字段
-      const ctxKeys = ctx ? Object.keys(ctx).slice(0, 15).join(',') : 'null';
-      console.log(`[fbs:before_prompt_build] ch=${ctx?.channelId} chat=${ctx?.conversationId} isGroup=${ctx?.isGroup} keys=${ctxKeys}`);
-      log.debug(`[before_prompt_build] ch=${ctx?.channelId} chat=${ctx?.conversationId} isGroup=${ctx?.isGroup}`);
+      // ctx.channelId 在飞书群聊中实际是群的 chat_id（oc_xxx），而不是字符串 'feishu'
+      // 参考实测日志：ch=oc_9ba7a535... chat=undefined isGroup=undefined
+      const chatId = ctx?.channelId?.split(':')?.[0]; // active-memory 子会话 key 包含 ':'
+      log.debug(`[before_prompt_build] channelId=${ctx?.channelId} chatId=${chatId}`);
 
-      // ① 非飞书渠道 → 跳过
-      if (ctx?.channelId !== 'feishu') return;
-
-      // ② 非群聊 → 跳过
-      if (!ctx?.isGroup) return;
-
-      // ③ 非目标群 → 跳过
-      const chatId = ctx?.conversationId;
+      // 目标群白名单检查（匹配即为飞书群聊，无需单独检查 channel 类型）
       if (!chatId || !TARGET_GROUPS.has(chatId)) return;
 
       // ④ 命中缓存（同群同分钟内复用）
@@ -275,10 +268,13 @@ const plugin = {
     // escapeRegExp 来自 [R1]
     // ════════════════════════════════════════════════════════════════════════
     api.on('message_sending', (event, ctx) => {
-      log.debug(`[message_sending] ch=${ctx?.channelId} len=${event.content?.length}`);
+      // ctx.channelId 对飞书群聊是 'oc_xxx'，对DM是 'ou_xxx'，均非 'feishu'
+      // 只对飞书群聊进行 @alias 替换（oc_ 开头）
+      const chanId = ctx?.channelId?.split(':')?.[0];
+      log.debug(`[message_sending] channelId=${ctx?.channelId} len=${event.content?.length}`);
 
-      // ① 非飞书渠道 → 跳过
-      if (ctx?.channelId !== 'feishu') return;
+      // 飞书群聊 ID 均以 oc_ 开头
+      if (!chanId?.startsWith('oc_')) return;
 
       let content  = event.content || '';
       let modified = false;
@@ -302,7 +298,7 @@ const plugin = {
 
       if (modified) {
         // 记录 outbound（熔断计数）
-        const chatId = ctx?.conversationId;
+        const chatId = ctx?.channelId?.split(':')?.[0];
         if (chatId && TARGET_GROUPS.has(chatId)) {
           stormGuard.recordOutbound(chatId);
         }
