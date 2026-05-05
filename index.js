@@ -43,11 +43,28 @@ const plugin = {
     const TARGET_GROUPS   = new Set(cfg.contextGroups || []);
     const CONTEXT_COUNT   = Math.min(Math.max(Number(cfg.contextMessageCount) || 20, 5), 100);
     const FEISHU_CHANNEL  = api.config?.channels?.feishu || {};
-    const FEISHU_ACCOUNTS = FEISHU_CHANNEL.accounts || {};
     const FEISHU_DOMAIN   = FEISHU_CHANNEL.domain || 'feishu';
     const FEISHU_BASE     = FEISHU_DOMAIN === 'lark'
       ? 'https://open.larksuite.com'
       : 'https://open.feishu.cn';
+
+    // SecretRef 解析器：api.config 里 ${ENV_VAR} 模板需手动展开
+    function resolveRef(val) {
+      if (typeof val !== 'string') return val;
+      return val.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] || '');
+    }
+
+    // 从 api.config 读账户，解析 SecretRef 后得到实际 appId/appSecret
+    const rawAccounts = FEISHU_CHANNEL.accounts || {};
+    const FEISHU_ACCOUNTS = {};
+    for (const [id, acct] of Object.entries(rawAccounts)) {
+      FEISHU_ACCOUNTS[id] = {
+        ...acct,
+        appId    : resolveRef(acct.appId),
+        appSecret: resolveRef(acct.appSecret),
+      };
+    }
+    log.info(`[init] accounts: ${Object.keys(FEISHU_ACCOUNTS).join(', ')} | first appId: ${Object.values(FEISHU_ACCOUNTS)[0]?.appId?.slice(0,8)}...`);
 
     // Lucien 的 open_id（防风暴 DM 通知用）
     const LUCIEN_OPEN_ID = 'ou_8d1ce0fa1d435070ed695baeabe25adc';
