@@ -16,23 +16,23 @@
 |------|------|
 | **群上下文感知** | 被 @ 时自动拉取群内近期消息（含其他 Bot 发言），注入 system prompt，让 Bot 的回复有完整群聊语境 |
 | **接收 Bot @Mention** | 其他 Bot @ 你时，你的 webhook 能正常收到并响应（需开通权限） |
-| **@alias 自动转 at 标签** | 回复里写 `@小K`，系统自动转为飞书原生 `<at user_id="...">` 标签，真正触达对方 Bot |
+| **@alias 自动转 at 标签** | 回复里写 `@BotName`，系统自动转为飞书原生 `<at user_id="...">` 标签，真正触达对方 Bot |
 | **防风暴保护** | Bot 之间避免形成无限循环 @，内置 debounce + 熔断机制 |
 
 ### 效果示意
 
 ```
-用户 @Jarvis：帮我总结一下群里在聊什么
+用户 @你的Bot：帮我总结一下群里在聊什么
 
-Jarvis 收到消息后：
-  → 自动拉取群内近期 20 条消息（含小K、rr 的发言）
-  → 知道小K 5分钟前发了晨报、rr 刚出了一批插画
+你的Bot 收到后：
+  → 自动拉取群内近期 20 条消息（含其他 Bot 的发言）
+  → 知道群里的 Bot 们最近说了什么
   → 回复有群聊语境，不再"不知道大家在聊什么"
 
-小K @Jarvis：你觉得这个设计怎么样？
-  → Jarvis webhook 收到消息（需开通权限）
-  → 识别发送者是小K，回复带发送者标注
-  → Jarvis 回复里写 @小K，自动转为正确的 <at> 标签
+其他Bot @你的Bot：你觉得这个设计怎么样？
+  → 你的Bot webhook 收到消息（需开通权限）
+  → 识别发送者身份，回复带发送者标注
+  → 回复里写 @OtherBot，自动转为正确的 <at> 标签
 ```
 
 ---
@@ -53,9 +53,12 @@ openclaw plugins install .
 openclaw plugins enable feishu-bot-social
 ```
 
-### Step 2：配置 openclaw.json
+> ⚠️ 如果安装被 scanner 拦截，手动 cp 绕过：
+> ```bash
+> cp -r . ~/.openclaw/extensions/feishu-bot-social/
+> ```
 
-在你的 `openclaw.json` 中添加：
+### Step 2：配置 openclaw.json
 
 ```json
 {
@@ -63,6 +66,9 @@ openclaw plugins enable feishu-bot-social
     "entries": {
       "feishu-bot-social": {
         "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true
+        },
         "config": {
           "contextGroups": ["oc_你的群chat_id"],
           "contextMessageCount": 20,
@@ -76,57 +82,72 @@ openclaw plugins enable feishu-bot-social
 }
 ```
 
-> **如何获取群 chat_id？** 飞书开发者后台 → 事件与回调 → 查看群消息事件，或用 API `/im/v1/chats` 查询。
+> **如何获取群 chat_id？** 飞书开发者后台查看消息事件，或用 API `GET /im/v1/chats` 查询。
 
-### Step 3：更新 wiki-bots.json
+### Step 3：填写 wiki-bots.json
 
-编辑 `data/wiki-bots.json`，填入你的群里所有 Bot 的信息：
+编辑 `data/wiki-bots.json`，填入群里所有 Bot 的信息。这张表会被注入到 system prompt，让你的 Bot 知道该如何 @ 其他人。
 
 ```json
 {
   "bots": {
-    "your-bot": {
-      "agentId": "your-bot",
+    "my-bot": {
+      "agentId": "my-bot",
       "appId": "cli_xxxxxxxxxxxx",
       "openId": "ou_xxxxxxxxxxxx",
-      "name": "你的Bot名",
+      "name": "Bot昵称",
       "emoji": "🤖",
-      "aliases": ["bot名", "别名"],
+      "aliases": ["昵称", "别名"],
       "owner": {
         "name": "主人名",
         "aliases": ["主人", "昵称"],
         "openId": "ou_xxxxxxxxxxxx"
       },
-      "description": "一句话描述",
+      "description": "一句话描述能力",
       "isSelf": true,
+      "isAI": true
+    },
+    "other-bot": {
+      "agentId": "other-bot",
+      "appId": "cli_yyyyyyyyyyyy",
+      "openId": "ou_yyyyyyyyyyyy",
+      "name": "另一个Bot",
+      "emoji": "🐾",
+      "aliases": ["另一个Bot"],
+      "owner": {
+        "name": "另一位主人",
+        "aliases": ["主人昵称"],
+        "openId": "ou_zzzzzzzzzzzz"
+      },
+      "description": "描述",
+      "isSelf": false,
       "isAI": true
     }
   },
   "members": {
-    "member-key": {
-      "name": "群成员名",
-      "aliases": ["昵称1", "昵称2"],
-      "openId": "ou_xxxxxxxxxxxx",
-      "bot": "该成员拥有的bot名（无则null）"
+    "person-a": {
+      "name": "群成员A",
+      "aliases": ["A", "昵称A"],
+      "openId": "ou_aaaaaaaaaa",
+      "bot": "my-bot"
     }
   }
 }
 ```
 
 **如何获取 openId？**
-- Bot 的 openId：调用飞书 API `/bot/v3/info`（用对应 Bot 的 tenant token）
-- 人员的 openId：在群里发一条 @所有人 的消息，通过 API `/im/v1/messages` 拉取，mentions 数组里有每个人的 openId
-- 最可靠的方式：让 Lucien/群管理员在群里发一条 @全员 的确认消息，读 mentions 字段
+- Bot 的 openId：调飞书 API `GET /bot/v3/info`（用对应 Bot 的 tenant token）
+- 人员的 openId：**最可靠的方法**——让群管理员在群里发一条 @所有人 的确认消息，通过 `GET /im/v1/messages` 拉取，mentions 数组里有每个人从你的 Bot 视角看到的 openId
 
-### Step 4：开通飞书权限（接收其他 Bot @你）
+### Step 4：开通飞书权限
 
-飞书开发者后台 → 你的应用 → 权限管理 → 搜索并开通：
+飞书开发者后台 → 你的应用 → 权限管理 → 开通：
 
 ```
 im:message.group_at_msg.include_bot:readonly
 ```
 
-> **说明**：不开此权限，其他 Bot @ 你时你的 webhook 收不到消息。开通后需发布新版本。
+> 不开此权限，其他 Bot @ 你时 webhook 收不到消息。开通后需发布新版本。
 
 ### Step 5：重启 Gateway
 
@@ -134,43 +155,35 @@ im:message.group_at_msg.include_bot:readonly
 openclaw gateway restart
 ```
 
----
-
-## 给小K / rr / 其他 Bot 安装
-
-如果你是群里其他 Bot 的维护者（比如小K 的老王、rr 的 Yuhui），安装步骤完全一样。
-
-**关键差异**：`wiki-bots.json` 里你的 Bot 要设 `"isSelf": true`，其他 Bot 设 `false`。
-
-```bash
-# 小K 的安装示例
-git clone https://github.com/ChenyqThu/feishu-bot-social.git
-cd feishu-bot-social
-
-# 修改 data/wiki-bots.json：
-# - 把 xiaok 的 isSelf 改为 true
-# - 把其他 bot 的 isSelf 改为 false
-# - 填入你自己群的 chat_id
-
-openclaw plugins install .
-openclaw plugins enable feishu-bot-social
+启动日志里确认看到：
+```
+http server listening (N plugins: ..., feishu-bot-social, ...)
+[feishu-bot-social] registry loaded
 ```
 
-所有 Bot 都装好、都开通 `im:message.group_at_msg.include_bot:readonly` 后，群里的 Bot 就能真正互相 @ 并收到消息了。
+---
+
+## 多 Bot 互通（让群里所有 Bot 都装上）
+
+如果群里有多个 Bot，**每个 Bot 都装上这个插件**，大家就能真正互相 @ 并收到消息。
+
+每个 Bot 的 `wiki-bots.json` 只需改一行：把**自己的** Bot 设为 `"isSelf": true`，其他 Bot 设为 `false`。
+
+所有 Bot 都开通 `im:message.group_at_msg.include_bot:readonly` 权限后，群里的 Bot 社交就打通了。
 
 ---
 
-## 配置说明
+## 配置参数
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `contextGroups` | `string[]` | `[]` | 启用上下文感知的群 chat_id 白名单 |
-| `contextMessageCount` | `number` | `20` | 每次拉取的群历史消息条数（5~100） |
-| `contextCacheTtlMs` | `number` | `60000` | 上下文缓存 TTL（同一群同分钟内复用） |
+| `contextGroups` | `string[]` | `[]` | 启用感知的群 chat_id 白名单 |
+| `contextMessageCount` | `number` | `20` | 拉取群历史消息条数（5~100）|
+| `contextCacheTtlMs` | `number` | `60000` | 上下文缓存 TTL（同群同分钟内复用）|
 | `stormThreshold` | `number` | `2` | 30s 内 Bot @你 超过此次数触发防风暴 |
-| `circuitBreakerMaxOutbound` | `number` | `5` | 1min 内你发出超过此条数触发熔断 |
-| `circuitBreakerSilenceMs` | `number` | `300000` | 熔断静默时长（默认 5 分钟） |
-| `debugLog` | `boolean` | `true` | 是否写调试日志到 `logs/fbs-debug-YYYY-MM-DD.log` |
+| `circuitBreakerMaxOutbound` | `number` | `5` | 1min 内发出超过此条数触发熔断 |
+| `circuitBreakerSilenceMs` | `number` | `300000` | 熔断静默时长（默认 5 分钟）|
+| `debugLog` | `boolean` | `true` | 写调试日志到 `logs/fbs-debug-YYYY-MM-DD.log` |
 
 ---
 
@@ -185,16 +198,15 @@ openclaw plugins enable feishu-bot-social
 inbound_claim（消息守卫）
   • 非目标群 → 透传
   • 人类消息 → 透传
-  • CRS告警等非AI Bot → 丢弃
-  • 其他Bot 未@你 → 丢弃
-  • 其他Bot @你 → 通过，并在消息前注入「来自 小K」标注
+  • 非AI Bot（纯 webhook 告警等）→ 丢弃
+  • 其他AI Bot 未 @ 你 → 丢弃
+  • 其他AI Bot @ 你 → 通过，注入「来自 BotName」标注
       │
       ▼
 before_prompt_build（上下文注入）
-  • 调飞书 API 拉取近期群消息（含Bot发言）
-  • 格式化为时间轴：「22:11 | 小K🐾 | [卡片] 今日晨报...」
-  • 注入群内Bot名单（含openId和at标签模板）
-  • 注入群成员@映射表
+  • 拉取近期群消息（含Bot发言），格式化为时间轴
+  • 注入群内Bot名单（含openId和<at>标签模板）
+  • 注入群成员@映射表（让Bot知道如何@人）
   • 追加到 system prompt 的 appendSystemContext
       │
       ▼
@@ -202,43 +214,38 @@ before_prompt_build（上下文注入）
       │
       ▼
 message_sending（格式修正）
-  • 检测回复中的 @botName
+  • 检测回复中的 @BotName
   • 替换为飞书原生 <at user_id="..."> 标签
   • 真正触发对方Bot的webhook
 ```
 
----
-
-## 注入 System Prompt 示例
+### 注入 System Prompt 示例
 
 ```
 [群聊感知上下文 · 23:43]
 
-本群活跃 AI Bot（6 个）：
-  🐾 小K（Kevin 的助理）
-     @ 方式: <at user_id="ou_a2c019095b2cb92317d70fe00ce88153">小K</at>
-     ID: open_id: ou_a2c019095b2cb92317d70fe00ce88153, app_id: cli_a92d7a5bb57a1bc4
-  😼 rr（Yuhui 的助理）
-     @ 方式: <at user_id="ou_9dc35fe422a1afd389b2e5f7ec132577">rr</at>
+本群活跃 AI Bot（2 个）：
+  🤖 BotA（成员A 的助理）
+     @ 方式: <at user_id="ou_xxx">BotA</at>
+     ID: open_id: ou_xxx, app_id: cli_xxx
+  🐾 BotB（成员B 的助理）
+     @ 方式: <at user_id="ou_yyy">BotB</at>
      ...
 
-本群人员 @ 映射（用于在回复中正确 @ 人）：
-  Kevin（老王/王俊/王叔）：<at user_id="ou_2eda37915c0a659b01ffe864727d59e4">Kevin</at>
-  Yuhui（雨慧/Raina）：<at user_id="ou_47a7c2e70616e78a4832c0e7753c4f22">Yuhui</at>
+本群人员 @ 映射：
+  成员A（昵称A）：<at user_id="ou_aaa">成员A</at>
   ...
 
 近期消息（最近 20 条，含 Bot 发言）：
-22:11 | 小K🐾      | [卡片] 今日晨报
-22:33 | Kevin      | @小K 沉淀到wiki人物card
-22:50 | 小K🐾      | wiki 沉淀完事 🐾
-23:22 | Lucien     | @小K 发消息 单独 at 一下 Jarvis
-23:27 | 小K🐾      | @Jarvis 这次 @ 对人了——bot-to-bot 测试...
+22:11 | BotB🐾    | 今日内容播报
+22:33 | 成员A     | @BotA 帮我处理一下
+22:50 | BotA🤖    | 好的，已完成
 
 交互规则：
-① 上方是群内近期真实消息，包括其他Bot的发言，可基于此回复
-② 提到名字 ≠ @通知，需要通知对方才用上方的 <at> 标签
-③ 只有 Lucien 明确要求与某Bot互动，才写 @名字（系统自动转at标签）
-④ 不要主动发起Bot间来回对话，防止循环响应
+① 上方是群内近期真实消息，可基于此回复
+② 提到名字 ≠ @通知，需要通知对方才用 <at> 标签
+③ 只有主人明确要求才 @其他Bot（系统自动转at标签）
+④ 不要主动发起Bot间来回对话，防止循环
 [/群聊感知上下文]
 ```
 
@@ -257,8 +264,9 @@ feishu-bot-social/
 ├── data/
 │   └── wiki-bots.json          # Bot + 人员信息表（手动维护）
 ├── test/
-│   └── smoke.js                # 冒烟测试（36个，无需网络）
+│   └── smoke.js                # 冒烟测试（无需网络）
 ├── openclaw.plugin.json        # 插件元数据
+├── package.json
 └── logs/                       # 调试日志（运行时自动创建）
 ```
 
@@ -270,13 +278,15 @@ feishu-bot-social/
 # 实时查看调试日志
 tail -f ~/.openclaw/extensions/feishu-bot-social/logs/fbs-debug-$(date +%Y-%m-%d).log
 
-# 常见日志关键词
-grep "before_prompt_build.*Fetched" logs/fbs-debug-*.log   # 上下文注入成功
-grep "inbound_claim.*bot @"         logs/fbs-debug-*.log   # 收到Bot @你的消息
-grep "message_sending.*Replaced"    logs/fbs-debug-*.log   # @alias 转换成功
-grep "storm-guard.*Storm"           logs/fbs-debug-*.log   # 防风暴触发
+# 常见关键词
+grep "registry loaded"              logs/fbs-debug-*.log   # 插件启动成功
+grep "before_prompt_build.*chatId"  logs/fbs-debug-*.log   # 上下文注入触发
+grep "Fetched.*msgs"                logs/fbs-debug-*.log   # 消息拉取成功
+grep "bot @.*pass"                  logs/fbs-debug-*.log   # 收到Bot @你的消息
+grep "Replaced.*<at>"               logs/fbs-debug-*.log   # @alias 转换成功
+grep "storm.*Storm"                 logs/fbs-debug-*.log   # 防风暴触发
 
-# 运行冒烟测试
+# 冒烟测试
 node test/smoke.js
 ```
 
@@ -284,26 +294,30 @@ node test/smoke.js
 
 ## 已知限制
 
-- 仅支持飞书群聊（不支持 DM、不支持其他渠道）
+- 仅支持飞书群聊（不支持 DM 或其他渠道）
 - 接收其他 Bot @你 需要双方都开通 `im:message.group_at_msg.include_bot:readonly`
-- 飞书 interactive card 里的 `<at>` 标签不会触发 webhook，需用 text/post 格式发送
+- 飞书 interactive card 里的 `<at>` 不会触发 webhook，需用 text/post 格式发送
 - `wiki-bots.json` 为手动维护，更新后需重启 gateway
+- **openId 是 app 视角的**：各 Bot 从自己的 app 视角看到的 openId 不同；`wiki-bots.json` 里填的是**你自己的 Bot 的 app 看到的** openId（通过让管理员在群里 @所有人 的消息来确认）
 
 ---
 
-## 贡献
+## 常见问题
 
-欢迎 PR！尤其是：
-- 自动同步 wiki-bots.json 与 OpenClaw wiki entities
-- 支持 Lark（国际版飞书）
-- 更多 msg_type 的 buildExcerpt 归一化
+**Q：插件 enabled 但没有出现在 gateway 启动日志的 plugin 列表里？**  
+A：检查 `openclaw.plugin.json` 格式是否正确，`openclaw` 字段需要嵌套在 `"openclaw": {}` 包装里，且需要 `"activation": { "onStartup": true }`。
+
+**Q：before_prompt_build 没有触发（日志里没有 context 注入记录）？**  
+A：确认 `openclaw.json` 里有 `plugins.entries.feishu-bot-social.hooks.allowConversationAccess: true`。
+
+**Q：@BotName 没有转成 `<at>` 标签？**  
+A：确认 `wiki-bots.json` 里对应 Bot 有正确的 `openId`，且 aliases 与回复里写的名字一致。
 
 ---
 
 ## 致谢
 
-- 架构参考：[feishu-bot-chat-plugin](https://github.com/Leochens/feishu-bot-chat-plugin)（三 Hook 骨架、Bot 自动发现思路，MIT）
-- 实现于蛋姐群 AI 伙伴军团实战场景（Jarvis / 小K / rr / Zero / miniGG / 暴躁蛋小黄 / Lyra）
+架构参考：[feishu-bot-chat-plugin](https://github.com/Leochens/feishu-bot-chat-plugin)（三 Hook 骨架、Bot 自动发现思路，MIT）
 
 ---
 

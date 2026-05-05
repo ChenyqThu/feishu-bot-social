@@ -10,9 +10,6 @@
       "pluginApi": ">=2026.3.0"
     }
   },
-  "activation": {
-    "onStartup": true
-  },
   "id": "feishu-bot-social",
   "configSchema": {
     "type": "object",
