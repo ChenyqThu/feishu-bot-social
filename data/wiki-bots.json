@@ -1,0 +1,90 @@
+{
+  "_comment": "来源：~/.openclaw/wiki/main/entities/bot-*.md，手动维护，更新后需重启 gateway",
+  "_updatedAt": "2026-05-05",
+  "bots": {
+    "jarvis": {
+      "agentId": "jarvis",
+      "appId": "cli_a9294cca62b85cba",
+      "openId": "ou_ad91b8a9d73f076c5502fe4f7842625c",
+      "name": "Jarvis",
+      "emoji": "🐲",
+      "aliases": ["jarvis", "贾维斯"],
+      "owner": "Lucien",
+      "description": "陈源泉的主力 AI 助理，赛博中国龙",
+      "isSelf": true,
+      "isAI": true
+    },
+    "xiaok": {
+      "agentId": "xiaok",
+      "appId": "cli_a92d7a5bb57a1bc4",
+      "openId": "ou_a2c019095b2cb92317d70fe00ce88153",
+      "name": "小K",
+      "emoji": "🐾",
+      "aliases": ["小k", "小K"],
+      "owner": "Kevin（老王）",
+      "description": "群内最活跃，擅长晨报/图像生成/skill 开发",
+      "isSelf": false,
+      "isAI": true
+    },
+    "rr": {
+      "agentId": "rr",
+      "appId": "cli_a944488992b8dcdb",
+      "openId": "ou_9dc35fe422a1afd389b2e5f7ec132577",
+      "name": "rr",
+      "emoji": "😼",
+      "aliases": ["rr"],
+      "owner": "Yuhui（Raina）",
+      "description": "外冷内热，机智幽默，擅长写作润色与调研梳理",
+      "isSelf": false,
+      "isAI": true
+    },
+    "zero": {
+      "agentId": "zero",
+      "appId": "cli_a923d3071ef81cc6",
+      "openId": "ou_65d4a3c0642baa877a2bd8e55fb604fd",
+      "name": "Zero",
+      "emoji": "🐶",
+      "aliases": ["Zero", "zero"],
+      "owner": "Zane（蔡志鹏）",
+      "description": "7×24 在线，擅长情报收集与健康数据分析",
+      "isSelf": false,
+      "isAI": true
+    },
+    "minigg": {
+      "agentId": "minigg",
+      "appId": "cli_a93ab6e1aaf81cd5",
+      "openId": "ou_757915988faaa60013faf0ed4f0e3fcf",
+      "name": "miniGG",
+      "emoji": "🤖",
+      "aliases": ["miniGG", "minigg"],
+      "owner": "郭伟（潮伟哥）",
+      "description": "赛博小螃蟹，擅长港股监控，开口必「hey bro」",
+      "isSelf": false,
+      "isAI": true
+    },
+    "baozao": {
+      "agentId": "baozao",
+      "appId": "cli_a9338ba47dfbdcc2",
+      "openId": "ou_ba0d90d16052eb10a65b194eafda42df",
+      "name": "暴躁蛋小黄",
+      "emoji": "😾",
+      "aliases": ["暴躁蛋小黄", "暴躁小猫咪"],
+      "owner": "孟凡朝（Leon）",
+      "description": "赛博合伙人兼首席吐槽官，写代码催活儿",
+      "isSelf": false,
+      "isAI": true
+    },
+    "crs-alert": {
+      "agentId": "crs-alert",
+      "appId": "cli_c08abc1da138d00f",
+      "openId": "ou_eb59766df9a9221df47a132052d8946d",
+      "name": "CRS告警",
+      "emoji": null,
+      "aliases": ["CRS告警", "CRS 告警"],
+      "owner": "Lucien",
+      "description": "CRS 系统监控 webhook，非 AI，无需回复",
+      "isSelf": false,
+      "isAI": false
+    }
+  }
+}
