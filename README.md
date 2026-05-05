@@ -189,35 +189,42 @@ http server listening (N plugins: ..., feishu-bot-social, ...)
 
 ## 工作原理
 
-插件注册三个 OpenClaw Hook：
+插件注册三个 OpenClaw Hook（OpenClaw 5.x 兼容）：
 
 ```
 飞书消息到达
       │
       ▼
-inbound_claim（消息守卫）
-  • 非目标群 → 透传
-  • 人类消息 → 透传
-  • 非AI Bot（纯 webhook 告警等）→ 丢弃
-  • 其他AI Bot 未 @ 你 → 丢弃
-  • 其他AI Bot @ 你 → 通过，注入「来自 BotName」标注
+message_received（观察 fire-and-forget；OpenClaw 5.x 已停用通用 inbound_claim）
+  • 仅观察，不能 drop / 修改 content（消息守卫职责由 OpenClaw 上层
+    groupPolicy / requireMention 完成）
+  • 识别 sender：bot vs human；忽略 self / 非 AI bot（如 CRS告警）
+  • 记录最近 bot @Jarvis 给 before_prompt_build 注入身份提示
+  • storm guard L2 inbound 计数 → 阈值时 DM 通知管理员
       │
       ▼
-before_prompt_build（上下文注入）
+before_prompt_build（上下文注入；返回 appendSystemContext）
   • 拉取近期群消息（含Bot发言），格式化为时间轴
   • 注入群内Bot名单（含openId和<at>标签模板）
   • 注入群成员@映射表（让Bot知道如何@人）
+  • 追加最近 bot @ Jarvis 的发件人身份（替代旧版 prefix-in-content）
   • 追加到 system prompt 的 appendSystemContext
       │
       ▼
   LLM 生成回复（有完整群聊上下文）
       │
       ▼
-message_sending（格式修正）
-  • 检测回复中的 @BotName
-  • 替换为飞书原生 <at user_id="..."> 标签
-  • 真正触发对方Bot的webhook
+message_sending（格式修正 + 熔断计数）
+  • 检测回复中的 @BotName，替换为飞书原生 <at user_id="..."> 标签
+  • outbound 计数：> circuitBreakerMaxOutbound 触发熔断（静默 silenceMs）
+  • ctx.conversationId 是真正的 chat_id（含 chat: 前缀，已自动归一化）
 ```
+
+> **OpenClaw 5.x API 变更说明**：通用 `inbound_claim` hook 已停用
+> （`runInboundClaim` 函数零调用，仅 `runInboundClaimForPluginOutcome`
+> 在对话 binding 时触发）。本插件改用 `message_received`（fire-and-forget），
+> 消息守卫职责（drop / mention 检查）现由 OpenClaw 上层 `groupPolicy` +
+> `requireMention` 配置完成。详见 [docs/HANDOFF.md](docs/HANDOFF.md)。
 
 ### 注入 System Prompt 示例
 

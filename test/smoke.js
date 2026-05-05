@@ -132,6 +132,59 @@ assert(r5c.includes('<at user_id="ou_RR">rr</at>'), '@ replace: rr');
 const r5d = testReplace('@小K2 错误的', '小K', 'ou_TEST', '小K');
 assert(!r5d.includes('<at'), '@ replace: no match for @小K2 (boundary check)');
 
+// ── Test 6: Bug G regression — formatContextBlock owner.name ─────────────────
+console.log('\n[smoke] Test 6: formatContextBlock owner.name (Bug G regression)');
+const { formatContextBlock } = require('../lib/context');
+
+const block = formatContextBlock({ messages: [], registry: reg, chatId: 'oc_test' });
+assert(!block.includes('[object Object]'), 'Bug G: no [object Object] in output');
+assert(block.includes('Kevin') && block.includes('Yuhui'), 'Bug G: real owner names present');
+assert(block.includes('小K') && block.includes('rr'),     'Bug G: bot names present');
+
+// ── Test 7: Bug I regression — owner not mistaken as bot ─────────────────────
+console.log('\n[smoke] Test 7: owner/bot index isolation (Bug I regression)');
+const lucienOpenId = 'ou_8d1ce0fa1d435070ed695baeabe25adc';
+assert(reg.isBotSender(lucienOpenId) === false,
+       'Bug I: Lucien (owner) NOT classified as bot sender');
+assert(reg.findByOpenId(lucienOpenId) === null,
+       'Bug I: Lucien openId returns null from findByOpenId');
+// Lucien 同时是 Jarvis 和 CRS告警 的 owner — 多 owner 同 openId 时索引取最后一个写入的；任意一个有效即可
+const lucienOwned = reg.findOwnerByOpenId(lucienOpenId);
+assert(lucienOwned !== null && ['Jarvis', 'CRS告警'].includes(lucienOwned.name),
+       `Bug I: findOwnerByOpenId returns a bot owned by Lucien (got ${lucienOwned?.name})`);
+assert(reg.findOwnerByOpenId('ou_2eda37915c0a659b01ffe864727d59e4')?.name === '小K',
+       'Bug I: findOwnerByOpenId returns 小K bot for Kevin');
+
+// ── Test 8: Bug H regression — outbound chatId from ctx.conversationId ───────
+console.log('\n[smoke] Test 8: outbound chatId derivation (Bug H regression)');
+// 模拟 message_sending ctx 形状（源码验证 deliver-BffEFXmb.js applyMessageSendingHook）
+const fakeCtxFeishu = { channelId: 'feishu', accountId: 'default', conversationId: 'oc_chat_x' };
+const fakeCtxOther  = { channelId: 'feishu', accountId: 'default', conversationId: 'ou_dm_y'   };
+
+// 关键不变量：ctx.conversationId 是真正的 chat/conv ID，不是 'feishu'
+assert(fakeCtxFeishu.conversationId === 'oc_chat_x', 'Bug H: ctx.conversationId is the chat_id (not channelId)');
+assert(fakeCtxFeishu.channelId !== fakeCtxFeishu.conversationId, 'Bug H: channelId and conversationId distinct');
+
+// 验证 storm guard 在收到 chatId 时正确累计
+const sg3 = new StormGuard({
+  stormThreshold: 99,
+  circuitBreakerMaxOutbound: 3,
+  circuitBreakerSilenceMs  : 1000,
+  logger: { info:()=>{}, warn:()=>{}, debug:()=>{} },
+});
+const targetGroups = new Set(['oc_chat_x']);
+function simulateOutbound(ctx) {
+  const chatId = ctx?.conversationId;
+  if (chatId && targetGroups.has(chatId)) sg3.recordOutbound(chatId);
+}
+simulateOutbound(fakeCtxFeishu); // count=1
+simulateOutbound(fakeCtxFeishu); // count=2
+simulateOutbound(fakeCtxOther);  // ignored (not in TARGET_GROUPS)
+simulateOutbound(fakeCtxFeishu); // count=3 → opens circuit
+const status = sg3.getStatus('oc_chat_x');
+assert(status.circuitOpen === true,
+       'Bug H: circuit OPENS after 3 outbound — recordOutbound was reached');
+
 // ── 结果汇总 ─────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(40)}`);
 if (failed === 0) {

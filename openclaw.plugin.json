@@ -23,6 +23,7 @@
       "stormThreshold": { "type": "number" },
       "circuitBreakerMaxOutbound": { "type": "number" },
       "circuitBreakerSilenceMs": { "type": "number" },
+      "alertReceiverOpenId": { "type": "string", "description": "管理员 open_id；防风暴触发时通过 DM 通知此人。未配置则跳过 DM。" },
       "botOverrides": { "type": "object" },
       "debugLog": { "type": "boolean" }
     },

@@ -12,9 +12,8 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "test": "node test/smoke.js"
-  },
-  "openclaw": {
-    "extensions": ["./index.js"]
+    "test": "node test/smoke.js && node test/integration.js",
+    "test:smoke": "node test/smoke.js",
+    "test:integration": "node test/integration.js"
   }
 }

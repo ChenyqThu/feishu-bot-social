@@ -1,3 +1,7 @@
 node_modules/
 logs/*.log
 .DS_Store
+.omc/
+
+# OpenClaw extension dir backup files
+index.js.bak.*

@@ -1,230 +1,295 @@
 'use strict';
 
 /**
- * feishu-bot-social — Plugin 主入口
+ * feishu-bot-social — Plugin 主入口（OpenClaw 5.x compatible）
  *
- * 三个 OpenClaw Plugin Hook：
- *   1. inbound_claim       — 消息守卫（过滤 bot 消息 + 注入发送者身份）
- *   2. before_prompt_build — 上下文增强（群历史 + bot 名单注入 system prompt）
- *   3. message_sending     — 格式修正（@alias → <at user_id="..."> 标签）
+ * Hook 注册：
+ *   1. message_received    — 观察入站消息（storm 计数 + 记录最近 bot @Jarvis）
+ *   2. before_prompt_build — 群上下文注入 system prompt（含最近 bot mention 提示）
+ *   3. message_sending     — @alias → <at user_id="..."> + outbound 熔断计数
  *
- * 关键：before_prompt_build 返回 { appendSystemContext: string }
- *   — SDK mergeBeforePromptBuild 会将多 plugin 的 appendSystemContext 自动 concat
- *   — 不要用 systemPromptExtra（SDK 不识别）
+ * 重要：OpenClaw 5.x 已停用通用 inbound_claim hook（runInboundClaim 函数零调用，
+ *   仅 runInboundClaimForPluginOutcome 在对话 binding 时触发）。本插件改用
+ *   message_received（fire-and-forget），不再尝试丢弃消息或修改 content。
+ *   消息守卫职责由 OpenClaw 上层 groupPolicy/requireMention 配置完成。
  *
- * 架构参考：[R1] feishu-bot-chat-plugin v0.2.0 三 Hook 骨架
- * 核心逻辑（上下文注入、防风暴）：本插件原创
+ * register() 设计：OpenClaw 5.x 在 startup 和每个 session 都会 register；
+ *   只有 startup register 的 api.config 含 channels.accounts。所有共享状态
+ *   提到模块级 SHARED 对象，register() 仅在配置可用时更新它。
  */
 
 const path = require('path');
-const os   = require('os');
 
 const { BotRegistry }                                        = require('./lib/registry');
 const { fetchGroupContext, formatContextBlock, ContextCache } = require('./lib/context');
 const { StormGuard }                                         = require('./lib/storm-guard');
 const { escapeRegExp, makeLogger }                           = require('./lib/utils');
 
-// ── Plugin 定义 ───────────────────────────────────────────────────────────────
+// ── 模块级共享状态 ──────────────────────────────────────────────────────────
+// startup register（含 api.config.channels）写入；后续 per-session register
+// 复用，避免每 session 重新初始化。
+
+const SHARED = {
+  // 配置
+  feishuAccounts     : {},                                // {accountId: {appId, appSecret}}
+  feishuBase         : 'https://open.feishu.cn',
+  targetGroups       : new Set(),
+  alertReceiverOpenId: null,
+  contextCount       : 20,
+
+  // 运行时单例（首次 register 创建一次）
+  registry    : null,
+  contextCache: null,
+  stormGuard  : null,
+  log         : null,
+
+  // tenant token 缓存与 inflight 去重
+  tokenCache   : new Map(),
+  tokenInflight: new Map(),
+
+  // 最近一次 bot @Jarvis 的发件人（用于在 before_prompt_build 中注入身份提示）
+  // chatId → { senderName, senderAtTag, ts }
+  lastBotMention: new Map(),
+
+  // hook 是否已挂到当前 api 的标记（不同 api 对象需各自挂）
+  // 因 hooks 是 per-api 的（OpenClaw harness 行为），SHARED 不跟踪
+};
+
+const LAST_MENTION_TTL_MS = 5 * 60 * 1000; // 5 分钟内最近 bot 提及可注入
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+function resolveRef(val) {
+  if (typeof val !== 'string') return val;
+  return val.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] || '');
+}
+
+/**
+ * 归一化对话 ID：去掉 OpenClaw `toPluginMessageContext` 在 message_received /
+ * message_sending ctx 中保留的 `chat:` / `user:` / `channel:` 前缀。
+ * 源码：dist/message-hook-mappers stripChannelPrefix
+ */
+function normalizeConversationId(raw) {
+  if (typeof raw !== 'string') return raw;
+  for (const p of ['chat:', 'user:', 'channel:']) {
+    if (raw.startsWith(p)) return raw.slice(p.length);
+  }
+  return raw;
+}
+
+function captureConfigFromApi(api, cfg) {
+  // pluginConfig 在每次 register 都传，可直接取
+  if (Array.isArray(cfg.contextGroups)) SHARED.targetGroups = new Set(cfg.contextGroups);
+  if (cfg.contextMessageCount) {
+    SHARED.contextCount = Math.min(Math.max(Number(cfg.contextMessageCount), 5), 100);
+  }
+  if (cfg.alertReceiverOpenId !== undefined) {
+    SHARED.alertReceiverOpenId = cfg.alertReceiverOpenId || null;
+  }
+
+  // api.config 仅在 startup register 含 channels；per-session register 此处为空，跳过
+  const ch = api.config?.channels?.feishu;
+  if (!ch) return;
+
+  SHARED.feishuBase = ch.domain === 'lark'
+    ? 'https://open.larksuite.com'
+    : 'https://open.feishu.cn';
+
+  const rawAccounts = ch.accounts || {};
+  const resolved = {};
+  for (const [id, acct] of Object.entries(rawAccounts)) {
+    resolved[id] = {
+      ...acct,
+      appId    : resolveRef(acct.appId),
+      appSecret: resolveRef(acct.appSecret),
+    };
+  }
+  if (Object.keys(resolved).length > 0) SHARED.feishuAccounts = resolved;
+}
+
+async function getTenantToken(accountId = 'default') {
+  const cached = SHARED.tokenCache.get(accountId);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
+  const inflight = SHARED.tokenInflight.get(accountId);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const acctId = accountId === 'default'
+      ? Object.keys(SHARED.feishuAccounts)[0]
+      : accountId;
+    const acct = SHARED.feishuAccounts[acctId];
+    if (!acct?.appId || !acct?.appSecret) {
+      SHARED.log?.warn(`[token] no credentials for ${acctId}`);
+      return null;
+    }
+
+    try {
+      const res  = await fetch(`${SHARED.feishuBase}/open-apis/auth/v3/tenant_access_token/internal`, {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({ app_id: acct.appId, app_secret: acct.appSecret }),
+      });
+      const json = await res.json();
+      if (json.code !== 0) throw new Error(json.msg);
+      SHARED.tokenCache.set(accountId, {
+        token    : json.tenant_access_token,
+        expiresAt: Date.now() + json.expire * 1000,
+      });
+      SHARED.log?.info(`[token] obtained for ${acctId}, expires in ${json.expire}s`);
+      return json.tenant_access_token;
+    } catch (e) {
+      SHARED.log?.error(`[token] failed: ${e.message}`);
+      return null;
+    }
+  })();
+
+  SHARED.tokenInflight.set(accountId, promise);
+  try {
+    return await promise;
+  } finally {
+    SHARED.tokenInflight.delete(accountId);
+  }
+}
+
+function ensureSingletons(cfg, api, glog) {
+  if (!SHARED.log) {
+    SHARED.log = makeLogger(cfg.debugLog !== false, path.join(__dirname, 'logs'));
+  }
+  if (!SHARED.contextCache) {
+    SHARED.contextCache = new ContextCache(Number(cfg.contextCacheTtlMs) || 60_000);
+  }
+  if (!SHARED.stormGuard) {
+    SHARED.stormGuard = new StormGuard({
+      stormThreshold            : Number(cfg.stormThreshold)            || 2,
+      circuitBreakerMaxOutbound : Number(cfg.circuitBreakerMaxOutbound) || 5,
+      circuitBreakerSilenceMs   : Number(cfg.circuitBreakerSilenceMs)   || 300_000,
+      logger                    : SHARED.log,
+      onStormDetected           : sendStormDM,
+    });
+  }
+  if (!SHARED.registry) {
+    SHARED.registry = new BotRegistry(SHARED.log);
+    SHARED.registry.load(cfg, api.config || {})
+      .then(() => {
+        glog?.info('[feishu-bot-social] registry loaded');
+        SHARED.log.info('[registry] load complete');
+      })
+      .catch(e => {
+        glog?.warn(`[feishu-bot-social] registry load failed: ${e.message}`);
+        SHARED.log.error(`[registry] load failed: ${e.message}`);
+      });
+  }
+}
+
+async function sendStormDM(chatId) {
+  if (!SHARED.alertReceiverOpenId) {
+    SHARED.log?.info(`[storm-guard] storm in ${chatId} but alertReceiverOpenId not configured, skip DM`);
+    return;
+  }
+  try {
+    const token = await getTenantToken();
+    if (!token) return;
+    await fetch(`${SHARED.feishuBase}/open-apis/im/v1/messages?receive_id_type=open_id`, {
+      method : 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body   : JSON.stringify({
+        receive_id: SHARED.alertReceiverOpenId,
+        msg_type  : 'text',
+        content   : JSON.stringify({
+          text: `⚠️ [fbs] Bot 消息循环风险，已暂停响应 bot @mention\n群：${chatId}`,
+        }),
+      }),
+    });
+    SHARED.log?.info(`[storm-guard] DM sent to ${SHARED.alertReceiverOpenId} for ${chatId}`);
+  } catch (e) {
+    SHARED.log?.warn(`[storm-guard] DM failed: ${e.message}`);
+  }
+}
+
+// ── Plugin 定义 ─────────────────────────────────────────────────────────────
 
 const plugin = {
   id         : 'feishu-bot-social',
   name       : 'Feishu Bot Social',
-  description: '飞书群聊 Bot 社交感知：群上下文注入 / Bot@Bot 接收 / @alias 格式转换 / 防风暴',
+  description: '飞书群聊 Bot 社交感知：群上下文注入 / @alias 格式转换 / 防风暴',
 
   register(api) {
     const cfg  = api.pluginConfig ?? {};
-    const glog = api.logger; // gateway 日志
-    const log  = makeLogger(cfg.debugLog !== false, path.join(__dirname, 'logs'));
+    const glog = api.logger;
 
+    captureConfigFromApi(api, cfg);
+    ensureSingletons(cfg, api, glog);
+
+    const log = SHARED.log;
     log.info('=== feishu-bot-social registering ===');
-
-    // ── 配置 ─────────────────────────────────────────────────────────────────
-
-    const TARGET_GROUPS   = new Set(cfg.contextGroups || []);
-    const CONTEXT_COUNT   = Math.min(Math.max(Number(cfg.contextMessageCount) || 20, 5), 100);
-    const FEISHU_CHANNEL  = api.config?.channels?.feishu || {};
-    const FEISHU_DOMAIN   = FEISHU_CHANNEL.domain || 'feishu';
-    const FEISHU_BASE     = FEISHU_DOMAIN === 'lark'
-      ? 'https://open.larksuite.com'
-      : 'https://open.feishu.cn';
-
-    // SecretRef 解析器：api.config 里 ${ENV_VAR} 模板需手动展开
-    function resolveRef(val) {
-      if (typeof val !== 'string') return val;
-      return val.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] || '');
-    }
-
-    // 从 api.config 读账户，解析 SecretRef 后得到实际 appId/appSecret
-    const rawAccounts = FEISHU_CHANNEL.accounts || {};
-    const FEISHU_ACCOUNTS = {};
-    for (const [id, acct] of Object.entries(rawAccounts)) {
-      FEISHU_ACCOUNTS[id] = {
-        ...acct,
-        appId    : resolveRef(acct.appId),
-        appSecret: resolveRef(acct.appSecret),
-      };
-    }
-    log.info(`[init] accounts: ${Object.keys(FEISHU_ACCOUNTS).join(', ')} | first appId: ${Object.values(FEISHU_ACCOUNTS)[0]?.appId?.slice(0,8)}...`);
-
-    // Lucien 的 open_id（防风暴 DM 通知用）
-    const LUCIEN_OPEN_ID = 'ou_8d1ce0fa1d435070ed695baeabe25adc';
-
-    log.info(`target groups: ${[...TARGET_GROUPS].join(', ') || '(none)'}`);
-    log.info(`context count: ${CONTEXT_COUNT}`);
-
-    // ── 模块 ─────────────────────────────────────────────────────────────────
-
-    const registry     = new BotRegistry(log);
-    const contextCache = new ContextCache(Number(cfg.contextCacheTtlMs) || 60_000);
-
-    const stormGuard = new StormGuard({
-      stormThreshold            : Number(cfg.stormThreshold)            || 2,
-      circuitBreakerMaxOutbound : Number(cfg.circuitBreakerMaxOutbound) || 5,
-      circuitBreakerSilenceMs   : Number(cfg.circuitBreakerSilenceMs)   || 300_000,
-      logger                    : log,
-      onStormDetected           : async (chatId) => {
-        try {
-          const token = await getTenantToken();
-          if (!token) return;
-          await fetch(`${FEISHU_BASE}/open-apis/im/v1/messages?receive_id_type=open_id`, {
-            method : 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body   : JSON.stringify({
-              receive_id: LUCIEN_OPEN_ID,
-              msg_type  : 'text',
-              content   : JSON.stringify({
-                text: `⚠️ [fbs] Bot 消息循环风险，已暂停响应 bot @mention\n群：${chatId}`,
-              }),
-            }),
-          });
-          log.info(`[storm-guard] DM sent to Lucien for ${chatId}`);
-        } catch (e) {
-          log.warn(`[storm-guard] DM failed: ${e.message}`);
-        }
-      },
-    });
-
-    // ── Tenant Token 管理（带过期缓存）──────────────────────────────────────
-
-    const tokenCache = new Map(); // accountId → { token, expiresAt }
-
-    async function getTenantToken(accountId = 'default') {
-      const cached = tokenCache.get(accountId);
-      if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
-
-      // 找第一个可用账户
-      const acctId = accountId === 'default'
-        ? Object.keys(FEISHU_ACCOUNTS)[0]
-        : accountId;
-      const acct = FEISHU_ACCOUNTS[acctId];
-      if (!acct?.appId || !acct?.appSecret) {
-        log.warn(`[token] no credentials for ${acctId}`);
-        return null;
-      }
-
-      try {
-        const res  = await fetch(`${FEISHU_BASE}/open-apis/auth/v3/tenant_access_token/internal`, {
-          method : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body   : JSON.stringify({ app_id: acct.appId, app_secret: acct.appSecret }),
-        });
-        const json = await res.json();
-        if (json.code !== 0) throw new Error(json.msg);
-        tokenCache.set(accountId, {
-          token    : json.tenant_access_token,
-          expiresAt: Date.now() + json.expire * 1000,
-        });
-        log.info(`[token] obtained for ${acctId}, expires in ${json.expire}s`);
-        return json.tenant_access_token;
-      } catch (e) {
-        log.error(`[token] failed: ${e.message}`);
-        return null;
-      }
-    }
-
-    // ── 异步初始化：加载 registry ─────────────────────────────────────────────
-
-    registry.load(cfg, api.config || {})
-      .then(() => {
-        glog?.info('[feishu-bot-social] registry loaded');
-        log.info('[registry] load complete');
-      })
-      .catch(e => {
-        glog?.warn(`[feishu-bot-social] registry load failed: ${e.message}`);
-        log.error(`[registry] load failed: ${e.message}`);
-      });
+    log.info(`[init] accounts: ${Object.keys(SHARED.feishuAccounts).join(', ') || '(none)'} | first appId: ${Object.values(SHARED.feishuAccounts)[0]?.appId?.slice(0,8) || 'undefined'}...`);
+    log.info(`target groups: ${[...SHARED.targetGroups].join(', ') || '(none)'}`);
+    log.info(`context count: ${SHARED.contextCount}`);
+    log.info(`alert receiver: ${SHARED.alertReceiverOpenId || '(not configured, DM disabled)'}`);
 
     // ════════════════════════════════════════════════════════════════════════
-    // Hook 1: inbound_claim
-    // 消息守卫：过滤不相关的 bot 消息，为 @Jarvis 的 bot 消息注入发送者身份
+    // Hook 1: message_received（替代已停用的 inbound_claim）
     //
-    // 机制：first-claim-wins（第一个返回 {handled:true} 的 plugin 获胜）
-    // 参考：[R1] inbound_claim hook，去掉 A2A 语义，增加非 AI bot 过滤
+    // 触发时机：OpenClaw 上层 groupPolicy/requireMention 已判定要 dispatch 后触发
+    // 语义：fire-and-forget void hook — 不能 drop 消息、不能修改 content
+    // 用途：
+    //   1. 识别 sender 是否 bot；记录最近一次 bot @Jarvis 用于 system prompt 注入
+    //   2. storm guard L2 inbound 计数（触发阈值后通过 DM 通知管理员）
+    //   3. 异步触发 history-discovery
+    //
+    // ctx 字段（源码验证 message-hook-mappers toPluginMessageContext）：
+    //   ctx.channelId      = 'feishu'
+    //   ctx.conversationId = 群=oc_xxx, DM=ou_xxx
+    //   ctx.senderId       = sender open_id 或 app_id
+    //   ctx.sessionKey     = 'agent:jarvis:feishu:group:oc_xxx'
     // ════════════════════════════════════════════════════════════════════════
-    api.on('inbound_claim', (event, ctx) => {
-      log.debug(`[inbound_claim] ch=${event.channel} group=${event.isGroup} ` +
-                `sender=${event.senderId} mentioned=${event.wasMentioned} chat=${event.conversationId}`);
+    api.on('message_received', (event, ctx) => {
+      if (ctx?.channelId !== 'feishu') return;
+      // ctx.conversationId 实际格式：'chat:oc_xxx' (group) / 'user:ou_xxx' (DM) — 需归一化
+      const chatId = normalizeConversationId(ctx?.conversationId);
+      if (!chatId || !SHARED.targetGroups.has(chatId)) return;
+      // 仅群消息有意义（chat_id 以 oc_ 起头；DM 是 ou_，不在 targetGroups 内但加保险）
+      if (!chatId.startsWith('oc_')) return;
 
-      // ① 非飞书渠道 → 透传
-      if (event.channel !== 'feishu') return;
+      const senderId = ctx?.senderId;
+      if (!senderId) return;
 
-      // ② 非群聊（DM）→ 透传
-      if (!event.isGroup) return;
+      log.debug(`[message_received] chat=${chatId} sender=${senderId}`);
 
-      // ③ 非目标群 → 透传
-      const chatId = event.conversationId;
-      if (!chatId || !TARGET_GROUPS.has(chatId)) return;
+      const reg     = SHARED.registry;
+      const senderBot = reg.findByOpenId(senderId) || reg.findByAppId(senderId);
 
-      const senderId   = event.senderId;
-      const senderIsBot = registry.isBotSender(senderId) || registry.isBotByAppId(senderId);
-
-      // ④ 人类消息 → 透传
-      if (!senderIsBot) {
-        log.debug(`[inbound_claim] human ${senderId}, pass`);
+      if (!senderBot) {
+        // 人类发件人：不需要记录身份（before_prompt_build 用群历史本身已能呈现）
+        return;
+      }
+      if (senderBot.isSelf || !senderBot.isAI) {
+        // 自己 / 非 AI bot（如 CRS告警）：忽略
         return;
       }
 
-      // ⑤ 自己（Jarvis）发的消息 → DROP（sender 可能是 open_id 或 app_id 格式）
-      const selfByOpenId = registry.findByOpenId(senderId)?.isSelf;
-      const selfByAppId  = registry.findByAppId(senderId)?.isSelf;
-      if (selfByOpenId || selfByAppId) {
-        log.debug('[inbound_claim] self message, drop');
-        return { handled: true };
-      }
-
-      // ⑥ 非 AI bot（CRS告警等）→ DROP
-      if (registry.isNonAIBot(senderId)) {
-        log.debug(`[inbound_claim] non-AI bot ${senderId}, drop`);
-        return { handled: true };
-      }
-
-      // ⑦ AI bot 未 @Jarvis → DROP
-      if (!event.wasMentioned) {
-        log.debug(`[inbound_claim] bot ${senderId} no mention, drop`);
-        glog?.info(`[feishu-bot-social] swallowed bot msg (no mention) from ${senderId}`);
-        return { handled: true };
-      }
-
-      // ⑧ AI bot @Jarvis → 防风暴检查
-      const sr = stormGuard.recordBotInbound(chatId);
+      // storm guard：bot @Jarvis 计数（已 dispatch 来到这里，意味着 OpenClaw 判定要触发）
+      const sr = SHARED.stormGuard.recordBotInbound(chatId);
       if (sr.drop) {
-        log.warn(`[inbound_claim] storm drop: reason=${sr.reason} chat=${chatId}`);
-        return { handled: true };
+        // 注意：v5 message_received 是 fire-and-forget，无法真正 drop；
+        // storm 状态会通过 DM 通知管理员，并阻断后续 outbound（熔断在 message_sending 侧生效）
+        log.warn(`[message_received] storm condition reached: reason=${sr.reason} chat=${chatId} (cannot drop here; outbound circuit will block replies)`);
       }
 
-      // ⑨ 通过：注入发送者身份前缀
-      const senderBot  = registry.findByOpenId(senderId) || registry.findByAppId(senderId);
-      const senderName = senderBot
-        ? `${senderBot.name}${senderBot.emoji ? ' ' + senderBot.emoji : ''}`
-        : `Bot(${senderId})`;
-      const senderAtTag = senderBot?.openId
+      // 记录最近 bot 提及，用于 before_prompt_build 注入身份提示
+      const senderName  = `${senderBot.name}${senderBot.emoji ? ' ' + senderBot.emoji : ''}`;
+      const senderAtTag = senderBot.openId
         ? `<at user_id="${senderBot.openId}">${senderBot.name}</at>`
         : senderName;
-      const prefix = `[来自 ${senderName}，如需 @ 回对方请使用：${senderAtTag}]\n\n`;
-
-      log.info(`[inbound_claim] bot @Jarvis from ${senderName}, pass with prefix`);
+      SHARED.lastBotMention.set(chatId, {
+        senderName,
+        senderAtTag,
+        senderId,
+        ts: Date.now(),
+      });
+      log.info(`[message_received] bot mention from ${senderName} in ${chatId}`);
       glog?.info(`[feishu-bot-social] bot @Jarvis from ${senderName}`);
-      return { content: prefix + (event.content || '') };
     });
 
     // ════════════════════════════════════════════════════════════════════════
@@ -235,73 +300,68 @@ const plugin = {
     // 返回字段：{ appendSystemContext: string }（不是 systemPromptExtra！）
     // ════════════════════════════════════════════════════════════════════════
     api.on('before_prompt_build', async (event, ctx) => {
-      // ctx.channelId: 群=oc_xxx, DM=ou_xxx, active-memory子session=oc_xxx:active-memory:xxx
-      // active-memory 子 session 不需要群上下文，直接跳过（节省一次 API 请求）
+      // active-memory 子 session 不需要群上下文
       if (ctx?.sessionKey?.includes(':active-memory:')) return;
 
       const chatId = ctx?.channelId?.split(':')?.[0];
       log.debug(`[before_prompt_build] channelId=${ctx?.channelId} chatId=${chatId}`);
 
-      if (!chatId || !TARGET_GROUPS.has(chatId)) return;
+      if (!chatId || !SHARED.targetGroups.has(chatId)) return;
 
-      // ④ 命中缓存（同群同分钟内复用）
-      const cached = contextCache.get(chatId);
+      // 缓存命中（同群同分钟内复用）
+      const cached = SHARED.contextCache.get(chatId);
+      let baseBlock;
       if (cached) {
         log.debug(`[before_prompt_build] cache hit for ${chatId}`);
-        return { appendSystemContext: cached };
-      }
-
-      // ⑤ 拉取群消息上下文
-      let contextBlock;
-      try {
-        const token = await getTenantToken();
-        if (!token) {
-          log.warn('[before_prompt_build] no token, skip context');
+        baseBlock = cached;
+      } else {
+        try {
+          const token = await getTenantToken();
+          if (!token) {
+            log.warn('[before_prompt_build] no token, skip context');
+            return;
+          }
+          const messages = await fetchGroupContext(chatId, SHARED.contextCount, token, SHARED.feishuBase);
+          log.info(`[before_prompt_build] fetched ${messages.length} msgs from ${chatId}`);
+          SHARED.registry.discoverFromHistory(chatId, token, SHARED.feishuBase).catch(() => {});
+          baseBlock = formatContextBlock({ messages, registry: SHARED.registry, chatId });
+          SHARED.contextCache.set(chatId, baseBlock);
+        } catch (e) {
+          log.warn(`[before_prompt_build] fetch failed: ${e.message}, degrading`);
+          glog?.warn(`[feishu-bot-social] context fetch failed for ${chatId}: ${e.message}`);
           return;
         }
-
-        const messages = await fetchGroupContext(chatId, CONTEXT_COUNT, token, FEISHU_BASE);
-        log.info(`[before_prompt_build] fetched ${messages.length} msgs from ${chatId}`);
-
-        // 异步触发历史 bot 发现，不阻塞本次响应
-        registry.discoverFromHistory(chatId, token, FEISHU_BASE).catch(() => {});
-
-        contextBlock = formatContextBlock({ messages, registry, chatId });
-      } catch (e) {
-        // 降级：API 失败时跳过注入，不阻塞响应
-        log.warn(`[before_prompt_build] fetch failed: ${e.message}, degrading`);
-        glog?.warn(`[feishu-bot-social] context fetch failed for ${chatId}: ${e.message}`);
-        return;
       }
 
-      // ⑥ 写缓存并返回
-      contextCache.set(chatId, contextBlock);
-      return { appendSystemContext: contextBlock };
+      // 追加最近 bot 提及身份信息（替代旧版 inbound_claim 的 prefix 注入）
+      const mention = SHARED.lastBotMention.get(chatId);
+      const mentionBlock = (mention && Date.now() - mention.ts < LAST_MENTION_TTL_MS)
+        ? `\n\n[最近触发本次响应的发件人]\n  ${mention.senderName}\n  如需 @ 回对方：${mention.senderAtTag}`
+        : '';
+
+      return { appendSystemContext: baseBlock + mentionBlock };
     });
 
     // ════════════════════════════════════════════════════════════════════════
     // Hook 3: message_sending
     // 格式修正：@alias → 飞书原生 <at user_id="..."> 标签
     //
-    // 机制：sequential modifying，返回修改后的 { content }
-    // 仅替换有 openId 的非自身 bot 的 aliases
-    // escapeRegExp 来自 [R1]
+    // ctx 字段（源码验证 deliver.js applyMessageSendingHook）：
+    //   ctx.channelId      = 'feishu'   始终固定（路由通道名）
+    //   ctx.accountId      = '...'
+    //   ctx.conversationId = params.to  群=oc_xxx, DM=ou_xxx — 真正的对话 ID
     // ════════════════════════════════════════════════════════════════════════
     api.on('message_sending', (event, ctx) => {
-      // message_sending ctx.channelId 始终是 'feishu'（路向层固定），不是 oc_xxx 或 ou_xxx
-      // 源码验证：message-hook-mappers outbound context channelId = messageProvider = 'feishu'
-      log.debug(`[message_sending] channelId=${ctx?.channelId} len=${event.content?.length}`);
+      log.debug(`[message_sending] channelId=${ctx?.channelId} convId=${ctx?.conversationId} len=${event.content?.length}`);
       if (ctx?.channelId !== 'feishu') return;
 
       let content  = event.content || '';
       let modified = false;
 
-      // ② 遍历所有可 @ 的 bot（AI + 非自身 + 有 openId）
-      for (const bot of registry.getAtTargets()) {
+      for (const bot of SHARED.registry.getAtTargets()) {
         for (const alias of (bot.aliases || [])) {
-          // 精确 word boundary：@alias 后跟非中文非字母数字（或字符串末尾）
           const pattern = new RegExp(
-            `@${escapeRegExp(alias)}(?=[^a-zA-Z0-9\u4e00-\u9fff]|$)`,
+            `@${escapeRegExp(alias)}(?=[^a-zA-Z0-9一-鿿]|$)`,
             'g'
           );
           const replaced = content.replace(pattern, `<at user_id="${bot.openId}">${bot.name}</at>`);
@@ -313,18 +373,18 @@ const plugin = {
         }
       }
 
-      if (modified) {
-        // 记录 outbound（熔断计数）
-        const chatId = ctx?.channelId?.split(':')?.[0];
-        if (chatId && TARGET_GROUPS.has(chatId)) {
-          stormGuard.recordOutbound(chatId);
-        }
-        return { content };
+      // 熔断计数：用 ctx.conversationId 取群 chatId（channelId 在 outbound 固定为 'feishu'）
+      // 同样归一化 'chat:oc_xxx' 前缀
+      const chatId = normalizeConversationId(ctx?.conversationId);
+      if (chatId && SHARED.targetGroups.has(chatId)) {
+        SHARED.stormGuard.recordOutbound(chatId);
       }
+
+      if (modified) return { content };
     });
 
     log.info('=== feishu-bot-social all hooks registered ===');
-    glog?.info('[feishu-bot-social] registered: inbound_claim + before_prompt_build + message_sending');
+    glog?.info('[feishu-bot-social] registered: message_received + before_prompt_build + message_sending');
   },
 };
 
