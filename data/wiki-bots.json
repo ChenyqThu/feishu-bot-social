@@ -1,6 +1,8 @@
 {
-  "_comment": "来源：~/.openclaw/wiki/main/entities/bot-*.md，手动维护，更新后需重启 gateway",
+  "_comment": "蛋姐群 Bot + 人员注册表。来源：wiki entities + 2026-05-05 Lucien @all 消息确认。更新后需同步到 extension 并重启 gateway。",
   "_updatedAt": "2026-05-05",
+  "_groundTruth": "2026-05-05 Lucien 在蛋姐群发送含11个@的确认消息，所有 open_id 以此为准",
+
   "bots": {
     "jarvis": {
       "agentId": "jarvis",
@@ -8,11 +10,12 @@
       "openId": "ou_ad91b8a9d73f076c5502fe4f7842625c",
       "name": "Jarvis",
       "emoji": "🐲",
-      "aliases": [
-        "jarvis",
-        "贾维斯"
-      ],
-      "owner": "Lucien",
+      "aliases": ["jarvis", "贾维斯"],
+      "owner": {
+        "name": "Lucien",
+        "aliases": ["Lucien", "源泉", "陈源泉"],
+        "openId": "ou_8d1ce0fa1d435070ed695baeabe25adc"
+      },
       "description": "陈源泉的主力 AI 助理，赛博中国龙",
       "isSelf": true,
       "isAI": true
@@ -23,11 +26,12 @@
       "openId": "ou_a2c019095b2cb92317d70fe00ce88153",
       "name": "小K",
       "emoji": "🐾",
-      "aliases": [
-        "小k",
-        "小K"
-      ],
-      "owner": "Kevin（老王）",
+      "aliases": ["小k", "小K"],
+      "owner": {
+        "name": "Kevin",
+        "aliases": ["Kevin", "老王", "王俊", "王叔"],
+        "openId": "ou_2eda37915c0a659b01ffe864727d59e4"
+      },
       "description": "群内最活跃，擅长晨报/图像生成/skill 开发",
       "isSelf": false,
       "isAI": true
@@ -38,10 +42,12 @@
       "openId": "ou_9dc35fe422a1afd389b2e5f7ec132577",
       "name": "rr",
       "emoji": "😼",
-      "aliases": [
-        "rr"
-      ],
-      "owner": "Yuhui（Raina）",
+      "aliases": ["rr"],
+      "owner": {
+        "name": "Yuhui",
+        "aliases": ["Yuhui", "雨慧", "Raina"],
+        "openId": "ou_47a7c2e70616e78a4832c0e7753c4f22"
+      },
       "description": "外冷内热，机智幽默，擅长写作润色与调研梳理",
       "isSelf": false,
       "isAI": true
@@ -52,11 +58,12 @@
       "openId": "ou_bdeae951a0bfcbc28508769c616bbdf3",
       "name": "Zero",
       "emoji": "🐶",
-      "aliases": [
-        "Zero",
-        "zero"
-      ],
-      "owner": "Zane（蔡志鹏）",
+      "aliases": ["Zero", "zero"],
+      "owner": {
+        "name": "Zane",
+        "aliases": ["Zane", "志鹏", "蔡志鹏"],
+        "openId": "ou_389dce62e6f2896c3bb5569599a86a93"
+      },
       "description": "7×24 在线，擅长情报收集与健康数据分析",
       "isSelf": false,
       "isAI": true
@@ -67,11 +74,12 @@
       "openId": "ou_757915988faaa60013faf0ed4f0e3fcf",
       "name": "miniGG",
       "emoji": "🤖",
-      "aliases": [
-        "miniGG",
-        "minigg"
-      ],
-      "owner": "郭伟（潮伟哥）",
+      "aliases": ["miniGG", "minigg"],
+      "owner": {
+        "name": "郭伟",
+        "aliases": ["郭伟", "潮伟哥"],
+        "openId": "ou_09b3b51976c82f5bff16dd07b259eb60"
+      },
       "description": "赛博小螃蟹，擅长港股监控，开口必「hey bro」",
       "isSelf": false,
       "isAI": true
@@ -82,11 +90,12 @@
       "openId": "ou_ba0d90d16052eb10a65b194eafda42df",
       "name": "暴躁蛋小黄",
       "emoji": "😾",
-      "aliases": [
-        "暴躁蛋小黄",
-        "暴躁小猫咪"
-      ],
-      "owner": "孟凡朝（Leon）",
+      "aliases": ["暴躁蛋小黄", "暴躁小猫咪"],
+      "owner": {
+        "name": "Leon",
+        "aliases": ["Leon", "凡朝", "孟凡朝"],
+        "openId": "ou_43133ecf3ed87456a650060f1c05b2b6"
+      },
       "description": "赛博合伙人兼首席吐槽官，写代码催活儿",
       "isSelf": false,
       "isAI": true
@@ -97,11 +106,12 @@
       "openId": "ou_3c91edc2055c00010bf27f67889c52f6",
       "name": "Lyra",
       "emoji": "🎵",
-      "aliases": [
-        "Lyra",
-        "lyra"
-      ],
-      "owner": "孙晓凤（Phoenix）",
+      "aliases": ["Lyra", "lyra"],
+      "owner": {
+        "name": "Phoenix",
+        "aliases": ["Phoenix", "晓凤", "孙晓凤", "小凤"],
+        "openId": "ou_f0bdb214b1bb5f387a59981afa4e8c61"
+      },
       "description": "Phoenix 的 AI 助理，灵感女神形象，擅长创作与设计支持",
       "isSelf": false,
       "isAI": true
@@ -112,14 +122,78 @@
       "openId": "ou_eb59766df9a9221df47a132052d8946d",
       "name": "CRS告警",
       "emoji": null,
-      "aliases": [
-        "CRS告警",
-        "CRS 告警"
-      ],
-      "owner": "Lucien",
+      "aliases": ["CRS告警", "CRS 告警"],
+      "owner": {
+        "name": "Lucien",
+        "aliases": ["Lucien"],
+        "openId": "ou_8d1ce0fa1d435070ed695baeabe25adc"
+      },
       "description": "CRS 系统监控 webhook，非 AI，无需回复",
       "isSelf": false,
       "isAI": false
+    }
+  },
+
+  "members": {
+    "lucien": {
+      "name": "Lucien",
+      "aliases": ["Lucien", "源泉", "陈源泉"],
+      "openId": "ou_8d1ce0fa1d435070ed695baeabe25adc",
+      "bot": "jarvis"
+    },
+    "kevin": {
+      "name": "Kevin",
+      "aliases": ["Kevin", "老王", "王俊", "王叔"],
+      "openId": "ou_2eda37915c0a659b01ffe864727d59e4",
+      "bot": "xiaok"
+    },
+    "yuhui": {
+      "name": "Yuhui",
+      "aliases": ["Yuhui", "雨慧", "Raina"],
+      "openId": "ou_47a7c2e70616e78a4832c0e7753c4f22",
+      "bot": "rr"
+    },
+    "zane": {
+      "name": "Zane",
+      "aliases": ["Zane", "志鹏", "蔡志鹏"],
+      "openId": "ou_389dce62e6f2896c3bb5569599a86a93",
+      "bot": "zero"
+    },
+    "guowei": {
+      "name": "郭伟",
+      "aliases": ["郭伟", "潮伟哥"],
+      "openId": "ou_09b3b51976c82f5bff16dd07b259eb60",
+      "bot": "minigg"
+    },
+    "leon": {
+      "name": "Leon",
+      "aliases": ["Leon", "凡朝", "孟凡朝"],
+      "openId": "ou_43133ecf3ed87456a650060f1c05b2b6",
+      "bot": "baozao"
+    },
+    "phoenix": {
+      "name": "Phoenix",
+      "aliases": ["Phoenix", "晓凤", "孙晓凤", "小凤"],
+      "openId": "ou_f0bdb214b1bb5f387a59981afa4e8c61",
+      "bot": "lyra"
+    },
+    "guojun": {
+      "name": "郭军",
+      "aliases": ["郭军"],
+      "openId": "ou_fee29a9f4bc36c87f84106de7ca1854d",
+      "bot": null
+    },
+    "guolaoshi": {
+      "name": "郭老师",
+      "aliases": ["郭老师", "设鸡师"],
+      "openId": "ou_8925c38d69351199a7cc389f478df591",
+      "bot": null
+    },
+    "shuaiwei": {
+      "name": "帅伟",
+      "aliases": ["帅伟", "板儿"],
+      "openId": "ou_9e775ad868e611ea5490510f7712bd1b",
+      "bot": null
     }
   }
 }
